@@ -218,6 +218,7 @@ fn make_section_changed_lines(
             is_checked: false,
             change_type,
             line: Cow::Owned(line.to_owned()),
+            group: None,
         })
         .collect()
 }
@@ -641,6 +642,7 @@ fn make_merge_sections(
                     Err(merge) => {
                         let lines: Vec<scm_record::SectionChangedLine> = merge
                             .iter()
+                            .enumerate()
                             .zip(
                                 [
                                     scm_record::ChangeType::Added,
@@ -649,15 +651,22 @@ fn make_merge_sections(
                                 .into_iter()
                                 .cycle(),
                             )
-                            .map(|(contents, change_type)| -> Result<_, BuiltinToolError> {
+                            .map(|((group_id, contents), change_type)| -> Result<_, BuiltinToolError> {
                                 let contents = str::from_utf8(contents).map_err(|err| {
                                     BuiltinToolError::DecodeUtf8 {
                                         source: err,
                                         item: "conflicting hunk",
                                     }
                                 })?;
-                                let changed_lines =
-                                    make_section_changed_lines(contents, change_type);
+                                let changed_lines: Vec<_> = contents
+                                    .split_inclusive('\n')
+                                    .map(|line| scm_record::SectionChangedLine {
+                                        is_checked: false,
+                                        change_type,
+                                        line: Cow::Owned(line.to_owned()),
+                                        group: Some(group_id),
+                                    })
+                                    .collect();
                                 Ok(changed_lines)
                             })
                             .flatten_ok()

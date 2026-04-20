@@ -4172,8 +4172,6 @@ dependencies = [
 [[package]]
 name = "scm-record"
 version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fcf5abfa361c5eb6870aa88b7736b6063fa127fc1eddf96fc127cd422baef68"
 dependencies = [
  "cassowary",
  "crossterm",
