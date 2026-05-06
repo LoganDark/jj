@@ -32,6 +32,10 @@ and this project adheres to
 * Templates now have a top-level `revset(revset: Stringify) -> List<Commit>`
   function for evaluating revsets during templating.
 
+* `jj squash` now accepts a `--restore-descendants` flag, matching `jj abandon`,
+  `jj diffedit`, and `jj restore`. When used, descendants of the destination
+  commit keep their original content rather than being 3-way merged.
+
 ### Fixed bugs
 
 * Shell completion now suggests tag names for `jj tag track`, `jj tag untrack`,
@@ -122,6 +126,8 @@ and this project adheres to
   where you need to pass multiple arguments to the tool, such as separate args
   for the range start and range end.
 
+<<<<<<< conflict 1 of 1
++++++++ zllsmusx 3bf1f8f6 "template: add `revset()` method for evaluating revsets in templates" (rebase destination)
 * `jj run` now uses the sparse patterns from the workspace it's run from.
   Use the `--sparse-patterns` option to control this behavior (evaluated
   per each `jj run` invocation).
