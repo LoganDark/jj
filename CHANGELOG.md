@@ -39,6 +39,10 @@ and this project adheres to
   can't be detected yet, so `git.object-hash` is still used in that case.
   [#3813](https://github.com/jj-vcs/jj/issues/3813)
 
+* `jj squash` now accepts a `--restore-descendants` flag, matching `jj abandon`,
+  `jj diffedit`, and `jj restore`. When used, descendants of the destination
+  commit keep their original content rather than being 3-way merged.
+
 ### Fixed bugs
 
 * In colocated workspaces, `--ignore-working-copy` and `--at-op` now prevent
@@ -143,6 +147,8 @@ Thanks to the people who made this release happen!
 * Templates now have a top-level `revset(revset: Stringify) -> List<Commit>`
   function for evaluating revsets during templating.
 
+<<<<<<< conflict 1 of 1
++++++++ vqzxslyz eea21664 "git: propagate unexpected HEAD reading errors" (rebase destination)
 * The `TreeEntry` template type now has `.removed_values() -> List<Option<TreeValue>>`
   and `.added_values() -> List<Option<TreeValue>>` methods, and `TreeValue` now
   exposes `.object_id()`, `.file_type()`, and `.executable()` methods for
