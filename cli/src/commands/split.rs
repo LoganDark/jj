@@ -468,6 +468,7 @@ async fn move_first_commit(
                 delete_abandoned_bookmarks: false,
             },
             simplify_ancestor_merge: false,
+            restore: false,
         },
     )
     .await?;
