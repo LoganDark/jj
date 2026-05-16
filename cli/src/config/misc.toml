@@ -7,6 +7,7 @@ b = ["bookmark"]
 ci = ["commit"]
 desc = ["describe"]
 st = ["status"]
+w = ["workspace"]
 
 [diff.color-words]
 conflict = "materialize"

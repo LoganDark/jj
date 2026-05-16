@@ -3076,6 +3076,112 @@ fn test_rebase_simplify_parents() {
     ");
 }
 
+#[test]
+fn test_rebase_restore() {
+    let test_env = TestEnvironment::default();
+    test_env.run_jj_in(".", ["git", "init", "repo"]).success();
+    let work_dir = test_env.work_dir("repo");
+
+    // Create two branches with different content so that rebasing (preserving diff)
+    // produces a different tree than restoring (preserving content).
+    create_commit(&work_dir, "a", &[]);
+    // Branch 1: creates file1
+    create_commit_with_files(&work_dir, "b1", &["a"], &[("file1", "b1\n")]);
+    // Branch 2: creates file2
+    create_commit_with_files(&work_dir, "b2", &["a"], &[("file2", "b2\n")]);
+    // A commit on b1 that adds file3 (doesn't touch file1)
+    create_commit_with_files(&work_dir, "c", &["b1"], &[("file3", "c on b1\n")]);
+
+    // Test the setup
+    insta::assert_snapshot!(get_log_output(&work_dir), @"
+    @  c: b1
+    ○  b1: a
+    │ ○  b2: a
+    ├─╯
+    ○  a
+    ◆
+    [EOF]
+    ");
+    let setup_opid = work_dir.current_operation_id();
+
+    // Without --restore, rebasing c onto b2 applies c's diff (adding file3) on
+    // top of b2, so the tree inherits file2 from b2.
+    let output = work_dir.run_jj(["rebase", "-r", "c", "-o", "b2"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Rebased 1 commits to destination
+    Working copy  (@) now at: vruxwmqv d23a4cc9 c | c
+    Parent commit (@-)      : royxmykx 7dd3b791 b2 | b2
+    Added 1 files, modified 0 files, removed 1 files
+    [EOF]
+    ");
+    // Verify tree: c inherits file2 from b2 (file1 was from b1, not inherited)
+    let stdout = work_dir.run_jj(["file", "list"]).stdout;
+    insta::assert_snapshot!(stdout, @"
+    a
+    file2
+    file3
+    [EOF]
+    ");
+
+    work_dir.run_jj(["op", "restore", &setup_opid]).success();
+
+    // With --restore, rebasing c onto b2 preserves c's original tree (which
+    // includes file1 from b1).
+    let output = work_dir.run_jj(["rebase", "-r", "c", "-o", "b2", "--restore"]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Rebased 1 commits to destination (while preserving their content)
+    Working copy  (@) now at: vruxwmqv 19512aed c | c
+    Parent commit (@-)      : royxmykx 7dd3b791 b2 | b2
+    [EOF]
+    ");
+    // Verify content preserved: c still has file1 (from original tree), not file2
+    let stdout = work_dir.run_jj(["file", "list"]).stdout;
+    insta::assert_snapshot!(stdout, @"
+    a
+    file1
+    file3
+    [EOF]
+    ");
+
+    work_dir.run_jj(["op", "restore", &setup_opid]).success();
+
+    // --restore with --simplify-parents should still simplify parents
+    create_commit_with_files(
+        &work_dir,
+        "d",
+        &["c", "b1"],
+        &[("file4", "d content\n")],
+    );
+    let output = work_dir.run_jj([
+        "rebase",
+        "-r",
+        "d",
+        "-o",
+        "b2",
+        "--restore",
+        "--simplify-parents",
+    ]);
+    insta::assert_snapshot!(output, @"
+    ------- stderr -------
+    Rebased 1 commits to destination (while preserving their content)
+    Working copy  (@) now at: uyznsvlq 3fe11b61 d | d
+    Parent commit (@-)      : royxmykx 7dd3b791 b2 | b2
+    [EOF]
+    ");
+    // Content preserved, but parent simplified (c dropped since b2 is not a
+    // descendant)
+    let stdout = work_dir.run_jj(["file", "list"]).stdout;
+    insta::assert_snapshot!(stdout, @"
+    a
+    file1
+    file3
+    file4
+    [EOF]
+    ");
+}
+
 #[must_use]
 fn get_log_output(work_dir: &TestWorkDir) -> CommandOutput {
     let template = "bookmarks ++ surround(': ', '', parents.map(|c| c.bookmarks()))";

@@ -564,6 +564,10 @@ pub struct RebaseOptions {
     /// If a merge commit would end up with one parent being an ancestor of the
     /// other, then filter out the ancestor.
     pub simplify_ancestor_merge: bool,
+    /// If set, target commits keep their original content rather than
+    /// having their diff applied to the new parents (they are reparented
+    /// rather than 3-way merged). Descendants are still rebased normally.
+    pub restore: bool,
 }
 
 /// Configuration for [`MutableRepo::update_rewritten_references()`].
@@ -980,6 +984,7 @@ async fn apply_move_commits(
         empty: EmptyBehavior::Keep,
         rewrite_refs: options.rewrite_refs.clone(),
         simplify_ancestor_merge: false,
+        restore: false,
     };
 
     let mut rebased_commits: HashMap<CommitId, RebasedCommit> = HashMap::new();
@@ -994,23 +999,41 @@ async fn apply_move_commits(
                     rewriter.abandon();
                 } else if rewriter.parents_changed() {
                     let is_target_commit = commits.target_commit_ids.contains(&old_commit_id);
-                    let rebased_commit = rebase_commit_with_options(
-                        rewriter,
-                        if is_target_commit {
-                            options
+                    if is_target_commit && options.restore {
+                        let mut rewriter = rewriter;
+                        if options.simplify_ancestor_merge {
+                            rewriter
+                                .simplify_ancestor_merge()
+                                .await
+                                .map_err(|err| BackendError::Other(err.into()))?;
+                        }
+                        if rewriter.parents_changed() {
+                            let new_commit = rewriter.reparent().write().await?;
+                            num_rebased_targets += 1;
+                            rebased_commits
+                                .insert(old_commit_id, RebasedCommit::Rewritten(new_commit));
                         } else {
-                            rebase_descendant_options
-                        },
-                    )
-                    .await?;
-                    if let RebasedCommit::Abandoned { .. } = rebased_commit {
-                        num_abandoned_empty += 1;
-                    } else if is_target_commit {
-                        num_rebased_targets += 1;
+                            num_skipped_rebases += 1;
+                        }
                     } else {
-                        num_rebased_descendants += 1;
+                        let rebased_commit = rebase_commit_with_options(
+                            rewriter,
+                            if is_target_commit {
+                                options
+                            } else {
+                                rebase_descendant_options
+                            },
+                        )
+                        .await?;
+                        if let RebasedCommit::Abandoned { .. } = rebased_commit {
+                            num_abandoned_empty += 1;
+                        } else if is_target_commit {
+                            num_rebased_targets += 1;
+                        } else {
+                            num_rebased_descendants += 1;
+                        }
+                        rebased_commits.insert(old_commit_id, rebased_commit);
                     }
-                    rebased_commits.insert(old_commit_id, rebased_commit);
                 } else {
                     num_skipped_rebases += 1;
                 }
@@ -1365,11 +1388,15 @@ pub struct SquashedCommit<'repo> {
 /// Squash `sources` into `destination` and return a [`SquashedCommit`] for the
 /// resulting commit. Caller is responsible for setting the description and
 /// finishing the commit.
+///
+/// If `restore_descendants` is set, descendants of the destination keep their
+/// original content (they are reparented rather than 3-way merged).
 pub async fn squash_commits<'repo>(
     repo: &'repo mut MutableRepo,
     sources: &[CommitWithSelection],
     destination: &Commit,
     keep_emptied: bool,
+    restore_descendants: bool,
 ) -> BackendResult<Option<SquashedCommit<'repo>>> {
     struct SourceCommit<'a> {
         commit: &'a CommitWithSelection,
@@ -1439,17 +1466,50 @@ pub async fn squash_commits<'repo>(
         // rewritten sources. Otherwise it will likely already have the content
         // changes we're moving, so applying them will have no effect and the
         // changes will disappear.
+        //
+        // When `restore_descendants` is set, commits that descend from the destination
+        // are reparented to preserve their content, rather than rebased.
         let immutable = RevsetExpression::none();
         let options = RebaseOptions::default();
-        repo.rebase_descendants_with_options(&immutable, &options, |old_commit, rebased_commit| {
-            if old_commit.id() != destination.id() {
-                return;
-            }
-            rewritten_destination = match rebased_commit {
-                RebasedCommit::Rewritten(commit) => commit,
-                RebasedCommit::Abandoned { .. } => panic!("all commits should be kept"),
-            };
-        })
+        let roots = source_commits
+            .iter()
+            .map(|source| source.commit.commit.id().clone())
+            .collect_vec();
+        let destination_id = destination.id().clone();
+        repo.transform_descendants_with_options(
+            roots,
+            &immutable,
+            &HashMap::new(),
+            &options.rewrite_refs,
+            async |mut rewriter| {
+                if rewriter.parents_changed() {
+                    let old_commit_id = rewriter.old_commit().id().clone();
+                    let restore = restore_descendants
+                        && old_commit_id != destination_id
+                        && rewriter
+                            .repo_mut()
+                            .index()
+                            .is_ancestor(&destination_id, &old_commit_id)
+                            .await
+                            // TODO: indexing error shouldn't be a "BackendError"
+                            .map_err(|err| BackendError::Other(err.into()))?;
+                    if restore {
+                        rewriter.reparent().write().await?;
+                    } else {
+                        let rebased = rebase_commit_with_options(rewriter, &options).await?;
+                        if old_commit_id == destination_id {
+                            rewritten_destination = match rebased {
+                                RebasedCommit::Rewritten(commit) => commit,
+                                RebasedCommit::Abandoned { .. } => {
+                                    panic!("all commits should be kept")
+                                }
+                            };
+                        }
+                    }
+                }
+                Ok(())
+            },
+        )
         .await?;
     }
     let mut predecessors = vec![destination.id().clone()];
