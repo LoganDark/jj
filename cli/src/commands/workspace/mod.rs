@@ -42,7 +42,10 @@ use crate::cli_util::CommandHelper;
 use crate::command_error::CommandError;
 use crate::ui::Ui;
 
-/// Commands for working with workspaces
+// Unlike most other aliases, `w` is defined in the config and can be overridden
+// by the user.
+
+/// Commands for working with workspaces [default alias: w]
 ///
 /// Workspaces let you add additional working copies attached to the same repo.
 /// A common use case is so you can run a slow build or test in one workspace
@@ -61,6 +64,7 @@ pub(crate) enum WorkspaceCommand {
     Remove(WorkspaceRemoveArgs),
     Rename(WorkspaceRenameArgs),
     Root(WorkspaceRootArgs),
+    #[command(visible_alias("u"))]
     UpdateStale(WorkspaceUpdateStaleArgs),
 }
 
