@@ -2200,6 +2200,7 @@ fn test_empty_commit_option(empty_behavior: EmptyBehavior) {
                 delete_abandoned_bookmarks: false,
             },
             simplify_ancestor_merge: true,
+            restore: false,
         },
     );
 
@@ -2323,6 +2324,7 @@ fn test_rebase_abandoning_empty() -> TestResult {
             delete_abandoned_bookmarks: false,
         },
         simplify_ancestor_merge: true,
+        restore: false,
     };
     let rewriter = CommitRewriter::new(tx.repo_mut(), commit_b, vec![commit_b2.id().clone()]);
     rebase_commit_with_options(rewriter, &rebase_options).block_on()?;

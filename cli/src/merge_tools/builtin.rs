@@ -2398,11 +2398,12 @@ mod tests {
                                         is_checked: true,
                                         change_type: Added,
                                         line,
+                                        ..
                                     } => Some(Unchanged { lines: vec![line] }),
                                     SectionChangedLine {
                                         is_checked: true,
                                         change_type: Removed,
-                                        line: _,
+                                        ..
                                     } => None,
                                     SectionChangedLine {
                                         is_checked: false, ..
