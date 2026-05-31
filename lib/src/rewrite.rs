@@ -564,6 +564,10 @@ pub struct RebaseOptions {
     /// If a merge commit would end up with one parent being an ancestor of the
     /// other, then filter out the ancestor.
     pub simplify_ancestor_merge: bool,
+    /// If set, target commits keep their original content rather than
+    /// having their diff applied to the new parents (they are reparented
+    /// rather than 3-way merged). Descendants are still rebased normally.
+    pub restore: bool,
 }
 
 /// Configuration for [`MutableRepo::update_rewritten_references()`].
@@ -980,6 +984,7 @@ async fn apply_move_commits(
         empty: EmptyBehavior::Keep,
         rewrite_refs: options.rewrite_refs.clone(),
         simplify_ancestor_merge: false,
+        restore: false,
     };
 
     let mut rebased_commits: HashMap<CommitId, RebasedCommit> = HashMap::new();
@@ -994,23 +999,41 @@ async fn apply_move_commits(
                     rewriter.abandon();
                 } else if rewriter.parents_changed() {
                     let is_target_commit = commits.target_commit_ids.contains(&old_commit_id);
-                    let rebased_commit = rebase_commit_with_options(
-                        rewriter,
-                        if is_target_commit {
-                            options
+                    if is_target_commit && options.restore {
+                        let mut rewriter = rewriter;
+                        if options.simplify_ancestor_merge {
+                            rewriter
+                                .simplify_ancestor_merge()
+                                .await
+                                .map_err(|err| BackendError::Other(err.into()))?;
+                        }
+                        if rewriter.parents_changed() {
+                            let new_commit = rewriter.reparent().write().await?;
+                            num_rebased_targets += 1;
+                            rebased_commits
+                                .insert(old_commit_id, RebasedCommit::Rewritten(new_commit));
                         } else {
-                            rebase_descendant_options
-                        },
-                    )
-                    .await?;
-                    if let RebasedCommit::Abandoned { .. } = rebased_commit {
-                        num_abandoned_empty += 1;
-                    } else if is_target_commit {
-                        num_rebased_targets += 1;
+                            num_skipped_rebases += 1;
+                        }
                     } else {
-                        num_rebased_descendants += 1;
+                        let rebased_commit = rebase_commit_with_options(
+                            rewriter,
+                            if is_target_commit {
+                                options
+                            } else {
+                                rebase_descendant_options
+                            },
+                        )
+                        .await?;
+                        if let RebasedCommit::Abandoned { .. } = rebased_commit {
+                            num_abandoned_empty += 1;
+                        } else if is_target_commit {
+                            num_rebased_targets += 1;
+                        } else {
+                            num_rebased_descendants += 1;
+                        }
+                        rebased_commits.insert(old_commit_id, rebased_commit);
                     }
-                    rebased_commits.insert(old_commit_id, rebased_commit);
                 } else {
                     num_skipped_rebases += 1;
                 }
