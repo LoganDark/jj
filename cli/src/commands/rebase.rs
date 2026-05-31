@@ -323,6 +323,10 @@ pub(crate) struct RebaseArgs {
     /// removed.
     #[arg(long)]
     simplify_parents: bool,
+
+    /// Preserve the content (not the diff) of the rebased revisions
+    #[arg(long)]
+    restore: bool,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -380,6 +384,7 @@ pub(crate) async fn cmd_rebase(
             delete_abandoned_bookmarks: false,
         },
         simplify_ancestor_merge: args.simplify_parents,
+        restore: args.restore,
     };
     let mut workspace_command = command.workspace_helper(ui).await?;
 
@@ -422,7 +427,7 @@ pub(crate) async fn cmd_rebase(
         }
     }
     let stats = computed_move.apply(tx.repo_mut(), &rebase_options).await?;
-    print_move_commits_stats(ui, &stats)?;
+    print_move_commits_stats(ui, &stats, args.restore)?;
     tx.finish(ui, tx_description(&loc.target)).await?;
 
     Ok(())
@@ -615,7 +620,11 @@ fn tx_description(target: &MoveCommitsTarget) -> String {
 }
 
 /// Print details about the provided [`MoveCommitsStats`].
-fn print_move_commits_stats(ui: &Ui, stats: &MoveCommitsStats) -> std::io::Result<()> {
+fn print_move_commits_stats(
+    ui: &Ui,
+    stats: &MoveCommitsStats,
+    restore_content: bool,
+) -> std::io::Result<()> {
     let Some(mut formatter) = ui.status_formatter() else {
         return Ok(());
     };
@@ -635,7 +644,12 @@ fn print_move_commits_stats(ui: &Ui, stats: &MoveCommitsStats) -> std::io::Resul
     if num_rebased_targets > 0 {
         writeln!(
             formatter,
-            "Rebased {num_rebased_targets} commits to destination."
+            "Rebased {num_rebased_targets} commits to destination{}.",
+            if restore_content {
+                " (while preserving their content)"
+            } else {
+                ""
+            }
         )?;
     }
     if num_rebased_descendants > 0 {
